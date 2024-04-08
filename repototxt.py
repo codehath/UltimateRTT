@@ -317,19 +317,19 @@ def analyze(
     ),
     save_to_file_option: bool = typer.Option(
         get_config_value("save_to_file", True),
-        "--save-to-file",
+        "--save",
         "-s",
         help="Toggle whether to save the analysis result to a file",
     ),
     copy_to_clipboard_option: bool = typer.Option(
         get_config_value("copy_to_clipboard", True),
-        "--copy-to-clipboard",
+        "--copy",
         "-c",
         help="Toggle whether to copy the analysis result to the clipboard",
     ),
     timestamp_option: bool = typer.Option(
         get_config_value("timestamp_option", True),
-        "--timestamp_option",
+        "--time",
         "-t",
         help="Toggle whether to save file with timestamp",
     ),
