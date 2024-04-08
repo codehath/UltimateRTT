@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 import datetime
 from tqdm import tqdm
 from bin_ext import BINARY_EXTENSIONS
+import json
+from typing import Optional
 
 load_dotenv()
 
@@ -30,8 +32,34 @@ ENABLE_SAVE_TO_FILE = (
 
 TIMESTAMP = bool(os.getenv("TIMESTAMP")) and os.getenv("TIMESTAMP") != "0"
 
+# -------------------------------------------------------------------------------------------------
 app = typer.Typer()
 console = Console()
+
+
+def read_config(config_path: str = "config.json") -> dict:
+    """
+    Reads configuration from a JSON file and returns the configuration as a dictionary.
+    """
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        config = {}
+    except json.JSONDecodeError:
+        raise Exception("Error decoding JSON configuration file.")
+    return config
+
+
+CONFIG = read_config()
+
+
+def get_config_value(key: str, default: Optional[bool] = None) -> Optional[bool]:
+    """
+    Helper function to fetch a configuration value given its key,
+    with an optional default if the key doesn't exist.
+    """
+    return CONFIG.get(key, default)
 
 
 def is_github_repo_url(input_path: str) -> bool:
@@ -296,7 +324,20 @@ def analyze(
         help="GitHub Personal Access Token for GitHub repository analysis.",
     ),
     output_dir: Path = typer.Option(
-        Path.cwd(), help="Directory to save the text output"
+        Path(get_config_value("output_directory", "./")),
+        help="Directory to save the text output",
+    ),
+    save_to_file_option: bool = typer.Option(
+        get_config_value("save_to_file", True),
+        "--save-to-file",
+        "-s",
+        help="Toggle whether to save the analysis result to a file",
+    ),
+    copy_to_clipboard_option: bool = typer.Option(
+        get_config_value("copy_to_clipboard", True),
+        "--copy-to-clipboard",
+        "-c",
+        help="Toggle whether to copy the analysis result to the clipboard",
     ),
 ):
     if not (ENABLE_CLIPBOARD or ENABLE_SAVE_TO_FILE):
@@ -318,10 +359,10 @@ def analyze(
         )
         raise typer.Exit(code=1)
 
-    if ENABLE_CLIPBOARD:
+    if copy_to_clipboard_option:
         copy_to_clipboard(output)
 
-    if ENABLE_SAVE_TO_FILE:
+    if save_to_file_option:
         save_to_file(output, repo_name, output_dir)
 
 
