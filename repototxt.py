@@ -22,16 +22,6 @@ except KeyError:
     print("You will only be able to convert local repositories")
 
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "")
-ENABLE_CLIPBOARD = (
-    bool(os.getenv("ENABLE_CLIPBOARD")) and os.getenv("ENABLE_CLIPBOARD") != "0"
-)
-ENABLE_SAVE_TO_FILE = (
-    bool(os.getenv("ENABLE_SAVE_TO_FILE", "1"))
-    and os.getenv("ENABLE_SAVE_TO_FILE") != "0"
-)
-
-TIMESTAMP = bool(os.getenv("TIMESTAMP")) and os.getenv("TIMESTAMP") != "0"
-
 # -------------------------------------------------------------------------------------------------
 app = typer.Typer()
 console = Console()
@@ -78,9 +68,9 @@ def copy_to_clipboard(text: str):
     console.print("[green]Text copied to clipboard![/green]")
 
 
-def save_to_file(text: str, filename: str, output_dir: Path):
+def save_to_file(text: str, filename: str, output_dir: Path, timestamp_option: bool):
     output_filename = f"{filename}.txt"
-    if TIMESTAMP:
+    if timestamp_option:
         output_filename = f"{filename}_{get_timestamp()}.txt"
     output_file_path = output_dir.joinpath(output_filename)
     with open(output_file_path, "w") as file:
@@ -105,11 +95,12 @@ def get_readme_content(repo):
         return "README not found."
 
 
-def get_local_readme_content(directory_path):
+def get_local_readme_content(path):
     """
     Retrieve the content of the README file in a local directory.
+    Improved error handling and consistency in parameter naming.
     """
-    readme_path = os.path.join(directory_path, "README.md")
+    readme_path = os.path.join(path, "README.md")
     if os.path.exists(readme_path):
         try:
             with open(readme_path, "r", encoding="utf-8") as readme_file:
@@ -118,6 +109,29 @@ def get_local_readme_content(directory_path):
             return f"Error reading README file: {e}"
     else:
         return "README not found."
+
+
+# def get_structure_iteratively(repo):
+#     """
+#     Traverse the repository iteratively to avoid recursion limits for large repositories.
+#     """
+#     structure = ""
+#     dirs_to_visit = [("", repo.get_contents(""))]
+#     dirs_visited = set()
+
+#     while dirs_to_visit:
+#         path, contents = dirs_to_visit.pop()
+#         dirs_visited.add(path)
+#         for content in tqdm(contents, desc=f"Processing {path}", leave=False):
+#             if content.type == "dir":
+#                 if content.path not in dirs_visited:
+#                     structure += f"{path}/{content.name}/\n"
+#                     dirs_to_visit.append(
+#                         (f"{path}/{content.name}", repo.get_contents(content.path))
+#                     )
+#             else:
+#                 structure += f"{path}/{content.name}\n"
+#     return structure
 
 
 def get_structure_iteratively(repo):
@@ -132,32 +146,29 @@ def get_structure_iteratively(repo):
         path, contents = dirs_to_visit.pop()
         dirs_visited.add(path)
         for content in tqdm(contents, desc=f"Processing {path}", leave=False):
-            if content.type == "dir":
-                if content.path not in dirs_visited:
-                    structure += f"{path}/{content.name}/\n"
-                    dirs_to_visit.append(
-                        (f"{path}/{content.name}", repo.get_contents(content.path))
-                    )
+            if content.type == "dir" and content.path not in dirs_visited:
+                structure += f"{path}/{content.name}/\n"
+                dirs_to_visit.append(
+                    (f"{path}/{content.name}", repo.get_contents(content.path))
+                )
             else:
                 structure += f"{path}/{content.name}\n"
     return structure
 
 
-def get_local_structure(directory_path):
+def get_local_structure(path):
     """
     Generate the structure of a local directory, excluding the .git folder.
     """
     structure = ""
-    for root, dirs, files in os.walk(directory_path):
+    for root, dirs, files in os.walk(path):
         dirs[:] = [d for d in dirs if d != ".git"]  # Exclude the .git folder
         for dir_name in dirs:
-            dir_path = os.path.join(root, dir_name)
-            relative_path = os.path.relpath(dir_path, directory_path)
+            relative_path = os.path.relpath(os.path.join(root, dir_name), path)
             structure += f"{relative_path}/\n"
 
         for file_name in files:
-            file_path = os.path.join(root, file_name)
-            relative_path = os.path.relpath(file_path, directory_path)
+            relative_path = os.path.relpath(os.path.join(root, file_name), path)
             structure += f"{relative_path}\n"
     return structure
 
@@ -339,8 +350,14 @@ def analyze(
         "-c",
         help="Toggle whether to copy the analysis result to the clipboard",
     ),
+    timestamp_option: bool = typer.Option(
+        get_config_value("timestamp_option", True),
+        "--timestamp_option",
+        "-t",
+        help="Toggle whether to save file with timestamp",
+    ),
 ):
-    if not (ENABLE_CLIPBOARD or ENABLE_SAVE_TO_FILE):
+    if not (copy_to_clipboard_option or save_to_file_option):
         console.print(
             "[red]ERROR: CLIPBOARD and SAVE TO FILE disabled, enable one and try again![/red]"
         )
@@ -363,7 +380,7 @@ def analyze(
         copy_to_clipboard(output)
 
     if save_to_file_option:
-        save_to_file(output, repo_name, output_dir)
+        save_to_file(output, repo_name, output_dir, timestamp_option)
 
 
 if __name__ == "__main__":
