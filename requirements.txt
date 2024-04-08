@@ -1,0 +1,5 @@
+typer
+rich
+PyGithub
+python-dotenv
+pyperclip
