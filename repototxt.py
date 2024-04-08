@@ -11,6 +11,7 @@ from tqdm import tqdm
 from bin_ext import BINARY_EXTENSIONS
 import json
 from typing import Optional
+from typer import Typer, Context
 
 load_dotenv()
 
@@ -316,7 +317,7 @@ def get_text(
 @app.command()
 def analyze(
     input_path: str = typer.Argument(
-        ..., help="Path to the local directory or full GitHub repository URL"
+        None, help="Path to the local directory or full GitHub repository URL"
     ),
     github_token: str = typer.Option(
         None,
@@ -340,6 +341,14 @@ def analyze(
         help="Toggle whether to copy the analysis result to the clipboard",
     ),
 ):
+    if not input_path:
+        typer.echo(
+            "Please provide a valid local directory path or a full GitHub repository URL."
+        )
+        raise typer.Exit(code=1)
+
+    # ... (the rest of the analyze function remains the same) ...
+
     if not (ENABLE_CLIPBOARD or ENABLE_SAVE_TO_FILE):
         console.print(
             "[red]ERROR: CLIPBOARD and SAVE TO FILE disabled, enable one and try again![/red]"
@@ -364,6 +373,32 @@ def analyze(
 
     if save_to_file_option:
         save_to_file(output, repo_name, output_dir)
+
+
+@app.callback()
+def default(ctx: Context, input_path: str = typer.Argument(None)):
+    if ctx.invoked_subcommand is None:
+        analyze(input_path=input_path)
+
+
+@app.command()
+def set_preference(
+    save_to_file: Optional[bool] = None,
+    copy_to_clipboard: Optional[bool] = None,
+    output_directory: Optional[str] = None,
+):
+    """
+    Sets user preferences for saving to file, copying to clipboard, and the output directory.
+    """
+    if save_to_file is not None:
+        CONFIG["save_to_file"] = save_to_file
+    if copy_to_clipboard is not None:
+        CONFIG["copy_to_clipboard"] = copy_to_clipboard
+    if output_directory:
+        CONFIG["output_directory"] = output_directory
+    with open("config.json", "w") as f:
+        json.dump(CONFIG, f, indent=4)
+    typer.echo("Preferences updated.")
 
 
 if __name__ == "__main__":
