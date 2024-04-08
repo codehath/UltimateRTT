@@ -21,7 +21,7 @@ except KeyError:
     print("Warning: GitHub Personal Access Token not found in environment variables.")
     print("You will only be able to convert local repositories")
 
-OUTPUT_DIR = os.getenv("OUTPUT_DIR", "")
+BINARY_EXTENSIONS = set(BINARY_EXTENSIONS)  # Convert to set for efficient lookup
 # -------------------------------------------------------------------------------------------------
 app = typer.Typer()
 console = Console()
@@ -111,30 +111,7 @@ def get_local_readme_content(path):
         return "README not found."
 
 
-# def get_structure_iteratively(repo):
-#     """
-#     Traverse the repository iteratively to avoid recursion limits for large repositories.
-#     """
-#     structure = ""
-#     dirs_to_visit = [("", repo.get_contents(""))]
-#     dirs_visited = set()
-
-#     while dirs_to_visit:
-#         path, contents = dirs_to_visit.pop()
-#         dirs_visited.add(path)
-#         for content in tqdm(contents, desc=f"Processing {path}", leave=False):
-#             if content.type == "dir":
-#                 if content.path not in dirs_visited:
-#                     structure += f"{path}/{content.name}/\n"
-#                     dirs_to_visit.append(
-#                         (f"{path}/{content.name}", repo.get_contents(content.path))
-#                     )
-#             else:
-#                 structure += f"{path}/{content.name}\n"
-#     return structure
-
-
-def get_structure_iteratively(repo):
+def get_repo_structure(repo):
     """
     Traverse the repository iteratively to avoid recursion limits for large repositories.
     """
@@ -156,7 +133,7 @@ def get_structure_iteratively(repo):
     return structure
 
 
-def get_local_structure(path):
+def get_local_repo_structure(path):
     """
     Generate the structure of a local directory, excluding the .git folder.
     """
@@ -173,94 +150,94 @@ def get_local_structure(path):
     return structure
 
 
-def get_file_contents_iteratively(repo):
-    file_contents = ""
+def get_file_contents(repo):
+    file_contents_list = []  # Use a list to improve string building efficiency
     dirs_to_visit = [("", repo.get_contents(""))]
     dirs_visited = set()
-    global BINARY_EXTENSIONS
 
     while dirs_to_visit:
         path, contents = dirs_to_visit.pop()
         dirs_visited.add(path)
         for content in tqdm(contents, desc=f"Downloading {path}", leave=False):
-            if content.type == "dir":
-                if content.path not in dirs_visited:
-                    dirs_to_visit.append(
-                        (f"{path}/{content.name}", repo.get_contents(content.path))
-                    )
+            if content.type == "dir" and content.path not in dirs_visited:
+                dirs_to_visit.append(
+                    (f"{path}/{content.name}", repo.get_contents(content.path))
+                )
             else:
-                # Skip the README file
+                # Skip README files
                 if content.name.lower() == "readme.md":
                     continue
 
-                # Check if the file extension suggests it's a binary file
-                if any(content.name.endswith(ext) for ext in BINARY_EXTENSIONS):
-                    file_contents += (
-                        f"File: {path}/{content.name}\nContent: Skipped binary file\n\n"
+                content_descriptor = f"File: {path}/{content.name}\n"
+                if any(
+                    content.name.endswith(ext) for ext in BINARY_EXTENSIONS
+                ):  # Efficient lookup
+                    file_contents_list.append(
+                        content_descriptor + "Content: Skipped binary file\n\n"
                     )
                 else:
-                    file_contents += f"File: {path}/{content.name}\n"
+                    # Only construct the content string if needed
+                    content_string = "Content: "
                     try:
-                        if content.encoding is None or content.encoding == "none":
-                            file_contents += (
-                                "Content: Skipped due to missing encoding\n\n"
-                            )
-                        else:
-                            try:
-                                decoded_content = content.decoded_content.decode(
-                                    "utf-8"
-                                )
-                                file_contents += f"Content:\n{decoded_content}\n\n"
-                            except UnicodeDecodeError:
-                                try:
-                                    decoded_content = content.decoded_content.decode(
-                                        "latin-1"
-                                    )
-                                    file_contents += f"Content (Latin-1 Decoded):\n{decoded_content}\n\n"
-                                except UnicodeDecodeError:
-                                    file_contents += "Content: Skipped due to unsupported encoding\n\n"
-                    except (AttributeError, UnicodeDecodeError):
-                        file_contents += "Content: Skipped due to decoding error or missing decoded_content\n\n"
-    return file_contents
+                        decoded_content = content.decoded_content.decode("utf-8")
+                        content_string += f"\n{decoded_content}\n\n"
+                    except UnicodeDecodeError:
+                        content_string += "Skipped due to unsupported encoding\n\n"
+                    except AttributeError:
+                        content_string += "Skipped due to decoding error or missing decoded_content\n\n"
+
+                    file_contents_list.append(content_descriptor + content_string)
+    return "".join(file_contents_list)  # Join the list into a single string at the end
 
 
-def get_local_file_contents_iteratively(directory_path):
+def get_local_file_contents(directory_path):
     """
     Generate the contents of files in a local directory, excluding the .git folder and README file.
     """
-    file_contents = ""
-    global BINARY_EXTENSIONS
+    file_contents_list = []
 
     for root, dirs, files in os.walk(directory_path):
-        dirs[:] = [d for d in dirs if d != ".git"]  # Exclude the .git folder
+        # Skip the README file and files in the .git folder
+        dirs[:] = [d for d in dirs if d != ".git"]
         for file_name in files:
+            if file_name.lower() == "readme.md":
+                continue
             file_path = os.path.join(root, file_name)
             relative_path = os.path.relpath(file_path, directory_path)
 
-            # Skip the README file and files in the .git folder
-            if relative_path.startswith(".git/") or file_name.lower() == "readme.md":
-                continue
-
-            file_contents += f"File: {relative_path}\n"
-            if any(file_name.endswith(ext) for ext in BINARY_EXTENSIONS):
-                file_contents += "Content: Skipped binary file\n\n"
+            content_descriptor = f"File: {relative_path}\n"
+            file_extension = os.path.splitext(file_name)[1]
+            if file_extension in BINARY_EXTENSIONS:
+                file_contents_list.append(
+                    content_descriptor + "Content: Skipped binary file\n\n"
+                )
             else:
                 try:
                     with open(file_path, "r", encoding="utf-8") as f:
                         content = f.read()
-                    file_contents += f"Content:\n{content}\n\n"
+                    file_contents_list.append(
+                        content_descriptor + f"Content:\n{content}\n\n"
+                    )
                 except UnicodeDecodeError:
                     try:
                         with open(file_path, "r", encoding="latin-1") as f:
                             content = f.read()
-                        file_contents += f"Content (Latin-1 Decoded):\n{content}\n\n"
+                        file_contents_list.append(
+                            content_descriptor
+                            + f"Content (Latin-1 Decoded):\n{content}\n\n"
+                        )
                     except UnicodeDecodeError:
-                        file_contents += (
-                            "Content: Skipped due to unsupported encoding\n\n"
+                        file_contents_list.append(
+                            content_descriptor
+                            + "Content: Skipped due to unsupported encoding\n\n"
                         )
                 except Exception as e:
-                    file_contents += f"Content: Skipped due to error: {str(e)}\n\n"
-    return file_contents
+                    file_contents_list.append(
+                        content_descriptor
+                        + f"Content: Skipped due to error: {str(e)}\n\n"
+                    )
+
+    return "".join(file_contents_list)
 
 
 def get_instructions(prompt_path, repo_name):
@@ -273,12 +250,12 @@ def get_instructions(prompt_path, repo_name):
 def set_functions(is_local):
     if is_local:
         get_readme = get_local_readme_content
-        get_structure = get_local_structure
-        get_files = get_local_file_contents_iteratively
+        get_structure = get_local_repo_structure
+        get_files = get_local_file_contents
     else:
         get_readme = get_readme_content
-        get_structure = get_structure_iteratively
-        get_files = get_file_contents_iteratively
+        get_structure = get_repo_structure
+        get_files = get_file_contents
 
     return get_readme, get_structure, get_files
 
