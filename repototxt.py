@@ -11,6 +11,7 @@ from tqdm import tqdm
 from bin_ext import BINARY_EXTENSIONS
 import json
 from typing import Optional
+import fnmatch
 
 load_dotenv()
 
@@ -61,6 +62,30 @@ def extract_repo_path(repo_url: str) -> str:
         return ""
     parts = repo_url.split("github.com/")
     return parts[1] if len(parts) == 2 else ""
+
+
+def parse_ignore_patterns(directory_path: str) -> list:
+    """
+    Parses both .gitignore and .gptignore files in the provided directory,
+    returns a list of patterns to ignore. Patterns in .gptignore take precedence.
+    """
+    ignore_files = [".gitignore", ".gptignore"]
+    ignore_patterns = []
+
+    for ignore_file in ignore_files:
+        try:
+            with open(os.path.join(directory_path, ignore_file), "r") as f:
+                for line in f:
+                    cleaned_line = line.strip()
+                    if cleaned_line and not cleaned_line.startswith("#"):
+                        ignore_patterns.append(cleaned_line)
+        except FileNotFoundError:
+            pass  # Ignore the error if the file does not exist
+
+    if not ignore_patterns:
+        ignore_patterns.extend([".git", ".gitignore", "**/.env"])
+
+    return list(set(ignore_patterns))  # remove duplicates
 
 
 def copy_to_clipboard(text: str):
@@ -135,11 +160,27 @@ def get_repo_structure(repo):
 
 def get_local_repo_structure(path):
     """
-    Generate the structure of a local directory, excluding the .git folder.
+    Generate the structure of a local directory, excluding the .git folder, README file and accounting for .gptignore.
     """
+    ignore_patterns = parse_ignore_patterns(path)
+    print(ignore_patterns)
     structure = ""
     for root, dirs, files in os.walk(path):
-        dirs[:] = [d for d in dirs if d != ".git"]  # Exclude the .git folder
+        dirs[:] = [
+            d
+            for d in dirs
+            if d != ".git"
+            and not any(fnmatch.fnmatch(d, pattern) for pattern in ignore_patterns)
+        ]
+        files = [
+            f
+            for f in files
+            if not any(
+                fnmatch.fnmatch(os.path.join(root, f), pattern)
+                for pattern in ignore_patterns
+            )
+        ]
+
         for dir_name in dirs:
             relative_path = os.path.relpath(os.path.join(root, dir_name), path)
             structure += f"{relative_path}/\n"
@@ -190,20 +231,32 @@ def get_file_contents(repo):
     return "".join(file_contents_list)  # Join the list into a single string at the end
 
 
-def get_local_file_contents(directory_path):
+def get_local_file_contents(path):
     """
-    Generate the contents of files in a local directory, excluding the .git folder and README file.
+    Generate the contents of files in a local directory, excluding the .git folder, README file and  also accounting for .gptignore.
     """
+    ignore_patterns = parse_ignore_patterns(path)
     file_contents_list = []
 
-    for root, dirs, files in os.walk(directory_path):
-        # Skip the README file and files in the .git folder
-        dirs[:] = [d for d in dirs if d != ".git"]
+    for root, dirs, files in os.walk(path):
+        dirs[:] = [
+            d
+            for d in dirs
+            if d != ".git"
+            and not any(fnmatch.fnmatch(d, pattern) for pattern in ignore_patterns)
+        ]
+        files = [
+            f
+            for f in files
+            if not any(fnmatch.fnmatch(f, pattern) for pattern in ignore_patterns)
+            and f.lower() != "readme.md"
+        ]
+
         for file_name in files:
             if file_name.lower() == "readme.md":
                 continue
             file_path = os.path.join(root, file_name)
-            relative_path = os.path.relpath(file_path, directory_path)
+            relative_path = os.path.relpath(file_path, path)
 
             content_descriptor = f"File: {relative_path}\n"
             file_extension = os.path.splitext(file_name)[1]
