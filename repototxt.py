@@ -316,6 +316,7 @@ def set_functions(is_local):
 def get_text(
     repo_path_or_url,
     is_local=False,
+    no_prompt=False,
 ):
     """
     Main function to get repository contents.
@@ -347,7 +348,9 @@ def get_text(
     print(f"\nFetching file contents for: {repo_name}")
     file_contents = get_files(repo_or_path)
 
-    instructions = get_instructions("instructions-prompt.txt", repo_name)
+    instructions = ""
+    if not no_prompt:
+        instructions = get_instructions("instructions-prompt.txt", repo_name)
 
     text = f"{instructions}\n\nREADME:\n{readme_content}\n\n{repo_structure}\n\n{file_contents}"
 
@@ -386,6 +389,12 @@ def analyze(
         "-t",
         help="Toggle whether to save file with timestamp",
     ),
+    no_prompt: bool = typer.Option(
+        False,
+        "--no-prompt",
+        "-np",
+        help="Toggle whether to exclude the instructions prompt from the output",
+    ),
 ):
     if not (copy_to_clipboard_option or save_to_file_option):
         console.print(
@@ -396,10 +405,9 @@ def analyze(
     output = ""
     if is_github_repo_url(input_path):
         set_functions(False)
-        # output = analyze_github_repo(input_path, github_token)
-        repo_name, output = get_text(input_path)
+        repo_name, output = get_text(input_path, no_prompt=no_prompt)
     elif os.path.isdir(input_path):
-        repo_name, output = get_text(input_path, True)
+        repo_name, output = get_text(input_path, True, no_prompt=no_prompt)
     else:
         console.print(
             "[red]Invalid input. Please provide a valid local directory path or a full GitHub repository URL.[/red]"
